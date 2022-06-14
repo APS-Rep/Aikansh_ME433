@@ -111,6 +111,7 @@ int main() {
                ;
            }
            
+           // Message is sent here
            sprintf(m,"Hey Nick!\r\n");
            writeUART1(m);
            

@@ -1,7 +1,9 @@
 #include<xc.h>           // processor SFR definitions
 #include<sys/attribs.h>  // __ISR 
-
 #include<stdio.h>
+#define PIC32_baud 230400
+#define step 0.01
+#include<math.h>
 
 // DEVCFG0
 #pragma config DEBUG = OFF // disable debugging
@@ -36,6 +38,9 @@
 
 void initSPI();
 unsigned char spi_io(unsigned char o);
+void read_UART(char* msg, int maxL);
+void write_UART(const char* str);
+unsigned short gen_16bit(unsigned char choice, unsigned char signal);
 
 int main() {
 
@@ -54,39 +59,89 @@ int main() {
     DDPCONbits.JTAGEN = 0;
 
     // do your TRIS and LAT commands here
-    TRISAbits.TRISA4 = 0;       //Set A4 as output
-    LATAbits.LATA4 = 0;
-    TRISBbits.TRISB4 = 1;       //Set B4 as input 
-    
-    // Used for the SPI DAC
     TRISAbits.TRISA1 = 0;       // Set A1 as output
     LATAbits.LATA1 = 0;
-    TRISBbits.TRISB5 = 1;       // Set B5 as input
-    
-    TRISBbits.TRISB6 = 0;       // Set A0 as output
-    LATBbits.LATB6 = 0;  
-    
-    
-    
+    TRISBbits.TRISB4 = 1;       // Set B4 as input
+     
     __builtin_enable_interrupts();
     
-    initSPI();
-    unsigned char i=0;
+    U1MODEbits.BRGH = 0; // set baud to PIC32_BAUD
+    U1BRG = ((48000000 / PIC32_baud) / 16) - 1;
     
-    while (1) {
-        // write one byte over SPI 
-        LATBbits.LATB6 = 0; // bring CS low
-        
-        i++;
-        if(i == 100)
+    // 8 bit, no parity bit, and 1 stop bit (8N1 setup)
+    U1MODEbits.PDSEL = 0;
+    U1MODEbits.STSEL = 0;
+
+    // configure TX & RX pins as output & input pins
+    U1STAbits.UTXEN = 1;
+    U1STAbits.URXEN = 1;
+    // configure hardware flow control using RTS and CTS
+    U1MODEbits.UEN = 2;
+
+    U1RXRbits.U1RXR = 0b0000; // Set A2 to U1RX
+    RPB3Rbits.RPB3R = 0b0001; // Set B3 to U1TX
+    
+    // Enable UART
+    U1MODEbits.ON = 1;
+    
+    initSPI();
+    
+    // declaring all variables here
+    float time = 0;
+    float sine;
+    unsigned char s_wave, choice_sine=1, choice_tri=0;
+    unsigned short signal_sine = 0;
+    unsigned char sig_2, spio1, spio2;
+    float x=0,y=0;
+    unsigned char t_wave;
+    unsigned short signal_triangle = 0;
+    unsigned char sig_2_tri, spio1_tri, spio2_tri;
+    
+    // infinite loop to generate sine and triangular wave
+    while(1)
+    {
+       time = time + step;
+       sine = 128*(sin(2*M_PI*2*time)+255);
+       
+       // converting to unsigned char
+       s_wave = sine;
+       
+       // generating a 16 bit signal 
+       signal_sine = gen_16bit(choice_sine, s_wave);
+       
+       // sending sine wave
+       LATAbits.LATA0 = 0;
+       sig_2 = signal_sine >> 8;
+       spio1 = spi_io(sig_2);
+       spio2 = spi_io(signal_sine);
+       LATAbits.LATA0 = 1;
+       
+       // generating the triangular wave
+       x+=0.01;
+       if(x < 0.5)
+       {
+            y = ((255.0/0.5)*x);
+       }
+       
+       else if(x >= 0.5)
         {
-            i=0;
+            y = abs((255.0-((255.0/0.5)*x)) + 255.0);
         }
-        _CP0_SET_COUNT(0);
-        while(_CP0_GET_COUNT() < 48000000/2)
-        {
-            ;
-        }                  
+        
+       else if(x>= 1)
+       {
+           x = 0;
+       }
+       
+       t_wave = y;
+       signal_triangle = gen_16bit(choice_tri, t_wave);
+       
+       // sending triangle wave
+       LATAbits.LATA0 = 0;
+       sig_2_tri = signal_triangle >> 8;
+       spio1_tri = spi_io(sig_2_tri);
+       spio2_tri = spi_io(signal_triangle);
+       LATAbits.LATA0 = 1;   
     }
 }
 
@@ -97,11 +152,13 @@ void initSPI() {
     ANSELA = 0;
     
     // RPA0 is set for CS
+    TRISAbits.TRISA0 = 0;
+    LATAbits.LATA0 = 1;
     
     // Set RPA1 as SDO1
     RPA1Rbits.RPA1R = 0b0011;   
      
-    // Set RPB5 as SDI1
+    // Setting SDI1
     SDI1Rbits.SDI1R = 0b0001; 
 
     
@@ -124,3 +181,54 @@ unsigned char spi_io(unsigned char o) {
   }
   return SPI1BUF;
 }
+
+void read_UART(char* msg, int maxL)
+{
+    char info = 0;
+    int flag=0,byteNum=0; //flag to check if message has been completed
+    while(flag!=1)
+    {
+        if(U1STAbits.URXDA)
+        {
+            info = U1RXREG;
+            if(info == '\n' || info == '\r')
+            {
+                flag++;
+            }
+            else
+            {
+                msg[byteNum] = info;
+                byteNum+=1;
+                if(byteNum>=maxL) //this is for rollover
+                {
+                    byteNum=0;
+                }
+            }
+        }
+    }
+    msg[byteNum] = '\0';
+}
+
+void write_UART(const char* str)
+{
+    while(*str!='\0')
+    {
+        while(U1STAbits.UTXBF)
+        {
+            ;
+        }
+        U1TXREG = *str;
+        ++str;
+    }
+}
+
+unsigned short gen_16bit(unsigned char choice, unsigned char signal) {
+    unsigned short s;
+    s = 0;
+    s = s | (choice << 15);
+    s = s | (0b111 << 12);
+    s = s | (signal << 4);
+
+    return s;
+}
+    

@@ -35,6 +35,7 @@ void ws2812b_setColor(wsColor * c, int numLEDs) {
     // loop through each WS2812B
     for (i = 0; i < numLEDs; i++) {
         // loop through each color bit, MSB first
+        // color red
         for (j = 7; j >= 0; j--) {
             // if the bit is a 1
             if (((c[i].r>>j)&0b1)==0b1) {
@@ -54,6 +55,7 @@ void ws2812b_setColor(wsColor * c, int numLEDs) {
             }
         }
         
+        // color green
         for (j = 7; j >= 0; j--) {
             // if the bit is a 1
             if (((c[i].g>>j)&0b1)==0b1) {
@@ -73,6 +75,7 @@ void ws2812b_setColor(wsColor * c, int numLEDs) {
             }
         }
         
+        // color blue
         for (j = 7; j >= 0; j--) {
             // if the bit is a 1
             if (((c[i].b>>j)&0b1)==0b1) {

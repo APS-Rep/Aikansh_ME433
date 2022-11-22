@@ -57,15 +57,6 @@ int main() {
     // disable JTAG to get pins back
     DDPCONbits.JTAGEN = 0;
 
-    // do your TRIS and LAT commands here
-//    i2c_master_setup();
-//    ssd1306_setup();
-    
-    ws2812b_setup();
-    
-   
-
-
     __builtin_enable_interrupts();
     TRISBbits.TRISB4 = 1; //INITIALISE B4 as input
     TRISAbits.TRISA4 = 0; //Initialise A4 as output
@@ -92,7 +83,13 @@ int main() {
     // enable the uart
     U1MODEbits.ON = 1;
     
+    ws2812b_setup();
+    
+    
+    // create a structure that keeps track of four LEDs
     wsColor led1[4];
+
+    
     ws2812b_setColor(led1,4);
 
 
